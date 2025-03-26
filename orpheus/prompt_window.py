@@ -1,99 +1,130 @@
 from transformers import PreTrainedTokenizerBase
 import logging
 from typing import Tuple
-from .constants import START_TOKEN, END_TOKENS, SNAC_TOKENS_PER_SECOND
+from .constants import START_TOKEN, END_TOKENS
 from .utils import split_sentences
+from dataclasses import dataclass
 
 
 class PromptWindow:
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
-        max_tokens: int,
+        max_context_text_tokens: int,
         voice: str | None,
         previous_audio_tokens: int,
     ):
-        self._context_text = ""
+        self._previous_text: str = ""
+        self._previous_audio: list[int] = []
         self._new_text = ""
-        self._context_audio: list[int] = []
         self._prompt = []
         self._tokenizer: PreTrainedTokenizerBase = tokenizer
         self._voice = voice
-        self._max_tokens = max_tokens
+        self._max_context_text_tokens = max_context_text_tokens
         self._inference_queue = list[Tuple[str, list[int]]]()
         self._previous_audio_tokens = previous_audio_tokens
 
     def push_text(self, text: str):
         self._new_text += text
 
-    def push_audio_token(self, audio: list[int]):
-        self._context_audio += audio
+    def push_previous_inference(self, input_text: str, audio: list[int]):
+        self._previous_text = input_text
+        self._previous_audio = audio
 
-    def get_next_inference(self) -> list[int]:
+    def get_next_inference(self) -> "PromptWindowInference | None":
         if not self._new_text:
-            return []
+            return None
 
-        first_inference = self._context_text == ""
-        sentences = split_sentences(self._new_text)
+        sentences, partial_sentence = split_sentences(self._new_text)
 
-        # First inference should wait for a full sentence
-        if first_inference and len(sentences) <= 1:
-            return []
+        if len(sentences) == 0:
+            return None
 
-        full_text = self._context_text + self._new_text
-
-        context_text = self._context_text[-64:]
-        new_text = self._new_text
-        full_text = context_text + new_text
-        tokens = self._tokenizer(full_text, return_tensors="pt")
-
-        # Leave room for 1 second of audio context
-        while len(tokens) > self._max_tokens - self._previous_audio_tokens:
-            print(len(tokens), self._max_tokens - SNAC_TOKENS_PER_SECOND)
-            new_text = new_text[: len(new_text) // 2]
-            full_text = context_text + new_text
-            tokens = self._tokenizer(full_text, return_tensors="pt")
-
-        if len(new_text) <= 1:
-            logging.error(
-                "Text too long to fit in prompt window, recovering but audio will be lost"
+        new_complete_sentence_text = " ".join(sentences)
+        tokens = (
+            self._tokenizer(
+                self._previous_text + new_complete_sentence_text, return_tensors="pt"
             )
-            self._context_text = self._context_text + self._new_text
-            self._new_text = ""
-            return []
+            .input_ids[0]
+            .tolist()
+        )
 
-        prefill_audio = self._context_audio[-self._previous_audio_tokens :]
-        final_prompt = self._format_prompt(
-            text=new_text,
-            prefill_audio=prefill_audio,
+        unused_sentences = []
+        while len(tokens) > self._max_context_text_tokens:
+            if len(sentences) > 1:
+                s = sentences.pop()  # Remove last sentence
+                unused_sentences.insert(0, s)
+                new_complete_sentence_text = " ".join(sentences)
+                context_text = (
+                    ""  # Reduce context to nothing when new text is one sentence
+                )
+                tokens = (
+                    self._tokenizer(
+                        context_text + new_complete_sentence_text, return_tensors="pt"
+                    )
+                    .input_ids[0]
+                    .tolist()
+                )
+            else:
+                break
+
+        self._new_text = " ".join(unused_sentences) + partial_sentence
+
+        logging.info(
+            f"Prompt window inference context text: {self._previous_text}, new text: {new_complete_sentence_text}"
+        )
+        return PromptWindowInference(
+            context_text=self._previous_text,
+            context_audio=self._previous_audio,
+            new_text=new_complete_sentence_text,
+            tokenizer=self._tokenizer,
             voice=self._voice,
         )
 
-        self._context_text = context_text + new_text
-        self._new_text = self._new_text[len(new_text) :]
 
-        logging.info(
-            f"Prompt window inference: '{full_text}', audio_context_used: {len(prefill_audio)}"
+@dataclass
+class PromptWindowInference:
+    def __init__(
+        self,
+        *,
+        context_text: str,
+        context_audio: list[int],
+        new_text: str,
+        voice: str | None,
+        tokenizer: PreTrainedTokenizerBase,
+    ):
+        self.context_text = context_text
+        self.context_audio = context_audio
+        self.new_text = new_text
+        self.voice = voice
+        self.tokenizer = tokenizer
+
+    def tokenize(self) -> list[int]:
+        context_text_prompt = self.context_text
+        new_text_prompt = self.new_text
+        if self.voice is not None:
+            context_text_prompt = f"{self.voice}: {self.context_text}"
+            new_text_prompt = f"{self.voice}: {self.new_text}"
+
+        context_text_tokens: list[int] = []
+        if self.context_text != "":
+            context_text_tokens = (
+                self.tokenizer(context_text_prompt, return_tensors="pt")
+                .input_ids[0]
+                .tolist()
+            )
+        new_text_tokens = (
+            self.tokenizer(new_text_prompt, return_tensors="pt").input_ids[0].tolist()
         )
-        return final_prompt
 
-    def _format_prompt(
-        self, *, text: str, prefill_audio: list[int], voice: str | None = None
-    ) -> list[int]:
-        if voice is not None:
-            adapted_prompt = f"{voice}: {text}"
-            prompt_tokens = self._tokenizer(adapted_prompt, return_tensors="pt")
-            start_token = [START_TOKEN]
-            end_tokens = END_TOKENS
-            all_input_ids: list[int] = (
-                start_token + prompt_tokens.input_ids[0].tolist() + end_tokens
-            )
-            return all_input_ids + prefill_audio
-        else:
-            prompt_tokens = self._tokenizer(text, return_tensors="pt")
-            start_token = [START_TOKEN]
-            end_tokens = END_TOKENS
-            all_input_ids: list[int] = (
-                start_token + prompt_tokens.input_ids[0].tolist() + end_tokens
-            )
-            return all_input_ids + prefill_audio
+        full_tokens: list[int] = (
+            [START_TOKEN]
+            + context_text_tokens
+            + END_TOKENS
+            + self.context_audio
+            + [START_TOKEN]
+            + new_text_tokens
+            + END_TOKENS
+        )
+
+        return full_tokens

@@ -1,8 +1,15 @@
 import re
 
 
-def split_sentences(text: str, min_sentence_len: int = 20) -> list[str]:
-    """the text can't contains substrings "<prd>" or "<stop>"""
+def split_sentences(
+    text: str,
+    min_sentence_len: int = 20,
+    max_sentence_len: int = 256,
+    sentence_cutoff_symbol: str = "--",
+) -> tuple[list[str], str]:
+    """Splits text into complete sentences and a partial sentence.
+    Returns (complete_sentences, partial_sentence).
+    Sentences longer than max_sentence_len are truncated with sentence_cutoff_symbol."""
     alphabets = r"([A-Za-z])"
     prefixes = r"(Mr|St|Mrs|Ms|Dr)[.]"
     suffixes = r"(Inc|Ltd|Jr|Sr|Co)"
@@ -46,15 +53,51 @@ def split_sentences(text: str, min_sentence_len: int = 20) -> list[str]:
         sentences = sentences[:-1]
     # fmt: on
 
-    new_sentences = []
+    complete_sentences = []
     buff = ""
     for sentence in sentences:
         buff += " " + sentence
-        if len(buff) > min_sentence_len:
-            new_sentences.append(buff[1:])
+        # Check if buff exceeds max_sentence_len
+        while len(buff) > max_sentence_len:
+            # Find the last space before max_sentence_len
+            cutoff_point = buff.rfind(" ", 0, max_sentence_len)
+            if cutoff_point == -1:  # No space found, force cut at max_sentence_len
+                cutoff_point = max_sentence_len - len(sentence_cutoff_symbol)
+            truncated_sentence = buff[1:cutoff_point].strip() + sentence_cutoff_symbol
+            if len(
+                truncated_sentence
+            ) >= min_sentence_len and truncated_sentence.endswith((".", "?", "!")):
+                complete_sentences.append(truncated_sentence)
+            buff = " " + buff[cutoff_point:].strip()
+
+        # Check if buff is a complete sentence within bounds
+        if len(buff) > min_sentence_len and buff.strip().endswith((".", "?", "!")):
+            complete_sentences.append(buff[1:])
             buff = ""
 
-    if buff:
-        new_sentences.append(buff[1:])
+    # Handle the leftover buff
+    partial_sentence = buff[1:].strip() if buff else ""
+    if partial_sentence and partial_sentence.endswith((".", "?", "!")):
+        if len(partial_sentence) <= max_sentence_len:
+            complete_sentences.append(partial_sentence)
+        else:
+            # Truncate partial_sentence if it exceeds max_sentence_len
+            cutoff_point = partial_sentence.rfind(" ", 0, max_sentence_len)
+            if cutoff_point == -1:
+                cutoff_point = max_sentence_len - len(sentence_cutoff_symbol)
+            truncated_sentence = (
+                partial_sentence[:cutoff_point].strip() + sentence_cutoff_symbol
+            )
+            if len(truncated_sentence) >= min_sentence_len:
+                complete_sentences.append(truncated_sentence)
+            partial_sentence = partial_sentence[cutoff_point:].strip()
+        partial_sentence = (
+            "" if partial_sentence.endswith((".", "?", "!")) else partial_sentence
+        )
 
-    return new_sentences
+    return complete_sentences, partial_sentence
+
+
+def tokenize(text: str, tokenizer) -> list[int]:
+    tokens = tokenizer(text, return_tensors="pt").input_ids[0].tolist()
+    return tokens

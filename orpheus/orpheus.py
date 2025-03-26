@@ -11,14 +11,12 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 import uuid
 from dataclasses import dataclass
 from .decoder import Decoder
-from .engine_stats import EngineStats
 from enum import Enum
 import time
-import logging
 from .constants import (
     SNAC_TOKENS_PER_SECOND,
 )
-from .prompt_window import PromptWindow
+from .prompt_window import PromptWindow, PromptWindowInference
 
 
 class OrpheusModel:
@@ -26,7 +24,6 @@ class OrpheusModel:
         self.model_name = model_name
         self.dtype = dtype
         self.engine = self._setup_engine()
-        self._engine_stats = EngineStats()
         self.available_voices = ["zoe", "zac", "jess", "leo", "mia", "julia", "leah"]
         t = AutoTokenizer.from_pretrained("./data/finetune-fp16")
         self.tokenizer = t
@@ -47,7 +44,6 @@ class OrpheusModel:
             raise RuntimeError("OrpheusModel is closed")
 
         session = SessionHandle(
-            engine_stats=self._engine_stats,
             engine=self.engine,
             tokenizer=self.tokenizer,
             voice=voice,
@@ -69,14 +65,12 @@ class SessionHandle:
         self,
         *,
         identifier: str,
-        engine_stats: EngineStats,
         engine: AsyncLLMEngine,
         tokenizer: PreTrainedTokenizerBase,
         voice: str | None,
-        max_text_context_tokens: int = 128,
-        max_audio_context_tokens: int = 128,
+        max_text_context_tokens: int = 256,
+        max_audio_context_tokens: int = SNAC_TOKENS_PER_SECOND * 2,
     ):
-        self._minimum_tokens_per_inference = 64
         self._ttft_threshold = 0.5
         self._max_text_context_tokens = max_text_context_tokens
         self._max_audio_context_tokens = max_audio_context_tokens
@@ -84,16 +78,14 @@ class SessionHandle:
         self._tokenizer = tokenizer
         self._voice = voice
         self._engine = engine
-        self._engine_stats = engine_stats
         self._input_queue = asyncio.Queue[str | None]()
         self._output_queue = asyncio.Queue[bytes | None]()
         self._run_task = asyncio.create_task(self.run())
-        self._clock = SessionClock()
         self._prompt = PromptWindow(
             tokenizer=self._tokenizer,
-            max_tokens=self._max_text_context_tokens + self._max_audio_context_tokens,
+            max_context_text_tokens=self._max_text_context_tokens,
             voice=voice,
-            previous_audio_tokens=SNAC_TOKENS_PER_SECOND * 2,
+            previous_audio_tokens=max_audio_context_tokens,
         )
         self._running_inference_tasks: list[asyncio.Task] = []
         self._running_cache_tasks: list[asyncio.Task] = []
@@ -115,7 +107,7 @@ class SessionHandle:
             self._prompt.push_text(prompt)
             if index == 0:
                 inference = self._prompt.get_next_inference()
-                if len(inference) == 0:
+                if inference is None:
                     continue
                 inference_job = await self._start_inference(inference)
                 inference_task = asyncio.create_task(
@@ -123,28 +115,16 @@ class SessionHandle:
                 )
                 continue
 
-            time_budget = self._clock.time_budget * 0.6
-
-            # If we're at risk of going slower than realtime, we should start inference
-            # TODO: do a real calculation here based on estimated time to first token
-            if time_budget < 0.5:
-                if not inference_job.finished:
-                    inference_job.cancel()
-                    # Allow more input tokens while the previous job is being cancelled
-                    continue
-
-                await inference_task
-                inference = self._prompt.get_next_inference()
-                if len(inference) == 0:
-                    continue
-                inference_job = await self._start_inference(inference)
-                inference_task = asyncio.create_task(
-                    self._inference_task(inference_job)
-                )
+            await inference_task
+            inference = self._prompt.get_next_inference()
+            if inference is None:
+                continue
+            inference_job = await self._start_inference(inference)
+            inference_task = asyncio.create_task(self._inference_task(inference_job))
 
         await inference_task
         inference = self._prompt.get_next_inference()
-        while len(inference) > 0:
+        while inference is not None:
             inference_job = await self._start_inference(inference)
             inference_task = asyncio.create_task(self._inference_task(inference_job))
             await inference_task
@@ -152,7 +132,7 @@ class SessionHandle:
 
         self._output_queue.put_nowait(None)
 
-    async def _start_inference(self, prompt: list[int]):
+    async def _start_inference(self, prompt: PromptWindowInference):
         job = InferenceJob(
             engine=self._engine,
             input=prompt,
@@ -166,24 +146,12 @@ class SessionHandle:
                 self._output_queue.put_nowait(audio)
 
         async def token_task():
-            start_time = time.time()
-            first_token = True
             token_count = 0
+            all_tokens = []
             async for token in job.output_token_stream():
                 token_count += 1
-                if first_token:
-                    dt = time.time() - start_time
-                    logging.info("First token: %s", dt)
-                    first_token = False
-                    self._engine_stats.log_time_to_first_token(
-                        prompt_tokens=len(job.input), time=dt
-                    )
-                self._clock.tick(1)
-                self._prompt.push_audio_token([token])
-
-            self._engine_stats.log_tps(
-                tokens=token_count, time=time.time() - start_time
-            )
+                all_tokens.append(token)
+            self._prompt.push_previous_inference(job.input.new_text, all_tokens)
 
         await asyncio.gather(audio_task(), token_task())
 
@@ -216,31 +184,12 @@ class SessionStats:
     avg_audio_tokens_per_text_token: float
 
 
-class SessionClock:
-    def __init__(self):
-        self._start_time = time.time()
-        self.wall_time: float = 0
-        self.media_time: float = 0
-        self._last_tick: float = time.time()
-
-    def tick(self, audio_token_count: int):
-        self.media_time += audio_token_count / SNAC_TOKENS_PER_SECOND
-        self._last_tick = time.time()
-        self.wall_time = self._last_tick - self._start_time
-
-    @property
-    def time_budget(self):
-        self._last_tick = time.time()
-        self.wall_time = self._last_tick - self._start_time
-        return self.media_time - self.wall_time
-
-
 class InferenceJob:
     def __init__(
         self,
         *,
         engine: AsyncLLMEngine,
-        input: list[int],
+        input: PromptWindowInference,
         max_tokens: int,
     ):
         self.input = input
@@ -252,6 +201,9 @@ class InferenceJob:
         self._cancel_task: asyncio.Task | None = None
         self.finished = False
         self._run_task = asyncio.create_task(self.run())
+        self._audio_tokens: list[int] = []
+        self._prewarm_kv_cache_task: asyncio.Task | None = None
+        self._kv_cache_req_id = str(uuid.uuid4())
 
     def cancel(self):
         if self._cancel_task is not None:
@@ -262,14 +214,14 @@ class InferenceJob:
         sampling_params = SamplingParams(
             temperature=0.6,
             top_p=0.8,
-            min_tokens=7,
+            min_tokens=14,
             max_tokens=self._max_tokens,
             stop_token_ids=[128258],
             repetition_penalty=1.1,
             output_kind=RequestOutputKind.DELTA,
         )
 
-        tp = TokensPrompt(prompt_token_ids=self.input)
+        tp = TokensPrompt(prompt_token_ids=self.input.tokenize())
 
         async def decode():
             async for audio in decoder:
@@ -277,20 +229,63 @@ class InferenceJob:
             self._audio_queue.put_nowait(None)
 
         decoder_task = asyncio.create_task(decode())
+        token_count = 0
+        start_time = time.time()
         async for result in self._engine.generate(
             request_id=self.req_id,
             prompt=tp,
             sampling_params=sampling_params,
         ):
             for token in result.outputs[0].token_ids:
+                token_count += 1
                 if decoder.push_token(token):
                     self._token_queue.put_nowait(token)
+                    self._audio_tokens.append(token)
+
+                    # Since the result of this inference will be the input
+                    # context of the next, we can prefill the kv cache and take
+                    # advantage of batching
+                    if (
+                        len(self._audio_tokens) > SNAC_TOKENS_PER_SECOND
+                        and self._prewarm_kv_cache_task is None
+                    ):
+                        self._prewarm_kv_cache_task = asyncio.create_task(
+                            self.prewarm_kv_cache()
+                        )
 
         self._token_queue.put_nowait(None)
+        print("NEIL tps", token_count / (time.time() - start_time))
 
         decoder.eos()
         await decoder_task
         self._finished = True
+        self._prewarm_kv_cache_task = asyncio.create_task(
+            self._engine.abort(self._kv_cache_req_id)
+        )
+
+    async def prewarm_kv_cache(self):
+        prompt = PromptWindowInference(
+            context_text="",
+            context_audio=self._audio_tokens,
+            new_text=self.input.new_text,
+            tokenizer=self.input.tokenizer,
+            voice=self.input.voice,
+        )
+        tp = TokensPrompt(prompt_token_ids=prompt.tokenize())
+        async for _ in self._engine.generate(
+            request_id=self._kv_cache_req_id,
+            prompt=tp,
+            sampling_params=SamplingParams(
+                temperature=0.6,
+                top_p=0.8,
+                min_tokens=1,
+                max_tokens=1,
+                stop_token_ids=[128258],
+                repetition_penalty=1.1,
+                output_kind=RequestOutputKind.DELTA,
+            ),
+        ):
+            continue
 
     async def output_token_stream(self):
         while True:

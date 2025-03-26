@@ -5,7 +5,7 @@ import numpy as np
 
 snac_device = "cuda"
 snac = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval()
-snac = snac.to(snac_device)
+snac = torch.compile(snac.to(snac_device), mode="max-autotune")
 
 
 class Decoder:
