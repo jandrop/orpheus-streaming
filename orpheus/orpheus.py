@@ -69,7 +69,7 @@ class SessionHandle:
         tokenizer: PreTrainedTokenizerBase,
         voice: str | None,
         max_text_context_tokens: int = 256,
-        max_audio_context_tokens: int = SNAC_TOKENS_PER_SECOND * 2,
+        max_audio_context_tokens: int = SNAC_TOKENS_PER_SECOND * 4,
     ):
         self._ttft_threshold = 0.5
         self._max_text_context_tokens = max_text_context_tokens
@@ -81,7 +81,7 @@ class SessionHandle:
         self._input_queue = asyncio.Queue[str | None]()
         self._output_queue = asyncio.Queue[bytes | None]()
         self._run_task = asyncio.create_task(self.run())
-        self._prompt = PromptWindow(
+        self._window = PromptWindow(
             tokenizer=self._tokenizer,
             max_context_text_tokens=self._max_text_context_tokens,
             voice=voice,
@@ -104,31 +104,26 @@ class SessionHandle:
             if prompt is None:
                 break
 
-            self._prompt.push_text(prompt)
-            if index == 0:
-                inference = self._prompt.get_next_inference()
-                if inference is None:
-                    continue
-                inference_job = await self._start_inference(inference)
-                inference_task = asyncio.create_task(
-                    self._inference_task(inference_job)
-                )
+            self._window.push_text(prompt)
+
+            # Let input accumulate
+            if not inference_job.finished:
                 continue
 
-            await inference_task
-            inference = self._prompt.get_next_inference()
+            inference = self._window.get_next_inference()
             if inference is None:
                 continue
+
             inference_job = await self._start_inference(inference)
             inference_task = asyncio.create_task(self._inference_task(inference_job))
 
         await inference_task
-        inference = self._prompt.get_next_inference()
+        inference = self._window.get_next_inference()
         while inference is not None:
             inference_job = await self._start_inference(inference)
             inference_task = asyncio.create_task(self._inference_task(inference_job))
             await inference_task
-            inference = self._prompt.get_next_inference()
+            inference = self._window.get_next_inference()
 
         self._output_queue.put_nowait(None)
 
@@ -151,7 +146,7 @@ class SessionHandle:
             async for token in job.output_token_stream():
                 token_count += 1
                 all_tokens.append(token)
-            self._prompt.push_previous_inference(job.input.new_text, all_tokens)
+            self._window.push_previous_inference(job.input.new_text, all_tokens)
 
         await asyncio.gather(audio_task(), token_task())
 
@@ -202,7 +197,11 @@ class InferenceJob:
         self.finished = False
         self._run_task = asyncio.create_task(self.run())
         self._audio_tokens: list[int] = []
-        self._prewarm_kv_cache_task: asyncio.Task | None = None
+        # The input to this job will be the context on the next so we can optimize
+        # by prewarming the cache with the next context. In the future we can be
+        # smarter and try to prewarm audio tokens as well but that's difficult
+        # at the moment because we don't know where the cutoff will be.
+        self._prewarm_kv_cache_task = asyncio.create_task(self.prewarm_kv_cache())
         self._kv_cache_req_id = str(uuid.uuid4())
 
     def cancel(self):
@@ -242,17 +241,6 @@ class InferenceJob:
                     self._token_queue.put_nowait(token)
                     self._audio_tokens.append(token)
 
-                    # Since the result of this inference will be the input
-                    # context of the next, we can prefill the kv cache and take
-                    # advantage of batching
-                    if (
-                        len(self._audio_tokens) > SNAC_TOKENS_PER_SECOND
-                        and self._prewarm_kv_cache_task is None
-                    ):
-                        self._prewarm_kv_cache_task = asyncio.create_task(
-                            self.prewarm_kv_cache()
-                        )
-
         self._token_queue.put_nowait(None)
         print("NEIL tps", token_count / (time.time() - start_time))
 
@@ -266,7 +254,7 @@ class InferenceJob:
     async def prewarm_kv_cache(self):
         prompt = PromptWindowInference(
             context_text="",
-            context_audio=self._audio_tokens,
+            context_audio=[],
             new_text=self.input.new_text,
             tokenizer=self.input.tokenizer,
             voice=self.input.voice,
