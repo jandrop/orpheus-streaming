@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebSocket Protobuf TTS</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        #messages {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="input-container">
+        <input type="text" id="messageInput" placeholder="Type text to send...">
+        <button id="sendButton">Send Text</button>
+        <button id="eosButton">End Session</button>
+    </div>
+    <div id="status">WebSocket Status: Connecting...</div>
+    <div id="messages"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs/dist/minimal/protobuf.min.js"></script>
+    <script>
+        var $protobuf = protobuf;
+    </script>
+    <script src="./generated/tts_pb.js"></script>
+
+    <script>
+        // Message types from the tts namespace
+        const tts = protobuf.roots.default.tts;
+        const SendMessage = tts.SendMessage;
+        const ReceiveMessage = tts.ReceiveMessage;
+        const StartSession = tts.StartSession;
+        const PushText = tts.PushText;
+        const Eos = tts.Eos;
+        const AudioData = tts.AudioData;
+        const Finished = tts.Finished;
+        const Error = tts.Error;
+        const AudioType = tts.AudioType;
+
+        // WebSocket setup
+        const ws = new WebSocket('ws://localhost:8080'); // Adjust URL as needed
+        let sessionId = null; // Store session ID after starting
+
+        // UI elements
+        const statusElement = document.getElementById('status');
+        const input = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const eosButton = document.getElementById('eosButton');
+
+        ws.onopen = function () {
+            updateStatus('Connected');
+            addMessage('Connected to server');
+            // Start session automatically on connect
+            sendStartSession();
+        };
+
+        ws.onmessage = function (event) {
+            const uint8Array = new Uint8Array(event.data);
+            const message = ReceiveMessage.decode(uint8Array);
+            handleReceiveMessage(message);
+        };
+
+        ws.onerror = function (error) {
+            console.error('WebSocket error:', error);
+            updateStatus('Error');
+            addMessage('Error connecting to server');
+        };
+
+        ws.onclose = function () {
+            console.log('Disconnected from WebSocket server');
+            updateStatus('Disconnected');
+            addMessage('Disconnected from server');
+            sessionId = null;
+        };
+
+        // Input and button handling
+        input.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter' && input.value.trim() !== '' && sessionId) {
+                sendPushText(input.value);
+                input.value = '';
+            }
+        });
+
+        sendButton.addEventListener('click', function () {
+            if (input.value.trim() !== '' && sessionId) {
+                sendPushText(input.value);
+                input.value = '';
+            }
+        });
+
+        eosButton.addEventListener('click', function () {
+            if (sessionId) {
+                sendEos();
+            }
+        });
+
+        // Sending functions
+        function sendStartSession() {
+            const startSession = StartSession.create({
+                voice: "default_voice", // Adjust as needed
+                id: "session_" + Date.now() // Unique ID
+            });
+            const message = SendMessage.create({ startSession: startSession });
+            const buffer = SendMessage.encode(message).finish();
+            ws.send(buffer);
+            sessionId = startSession.id;
+            addMessage(`Started session: ${sessionId}`);
+        }
+
+        function sendPushText(text) {
+            const pushText = PushText.create({
+                session: sessionId,
+                text: text
+            });
+            const message = SendMessage.create({ pushText: pushText });
+            const buffer = SendMessage.encode(message).finish();
+            ws.send(buffer);
+            addMessage(`Sent: ${text}`);
+        }
+
+        function sendEos() {
+            const eos = Eos.create({ session: sessionId });
+            const message = SendMessage.create({ eos: eos });
+            const buffer = SendMessage.encode(message).finish();
+            ws.send(buffer);
+            addMessage(`Sent EOS for session: ${sessionId}`);
+            sessionId = null; // Reset session
+        }
+
+        // Handle received messages
+        function handleReceiveMessage(message) {
+            switch (message.payload) {
+                case 'audioData':
+                    const audio = message.audioData;
+                    addMessage(`Received Audio: session=${audio.session}, sample_rate=${audio.sampleRate}, type=${AudioType[audio.audioType]}, channels=${audio.channelCount}`);
+                //18                    break;
+                case 'finished':
+                    const finished = message.finished;
+                    addMessage(`Session Finished: ${finished.session}`);
+                    sessionId = null;
+                    break;
+                case 'error':
+                    const error = message.error;
+                    addMessage(`Error: ${error.message} (session: ${error.session})`);
+                    break;
+                default:
+                    addMessage('Received unknown message type');
+            }
+        }
+
+        // Display messages
+        function addMessage(text) {
+            const messagesDiv = document.getElementById('messages');
+            const messageP = document.createElement('p');
+            messageP.textContent = text;
+            messagesDiv.appendChild(messageP);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Update WebSocket status
+        function updateStatus(status) {
+            statusElement.textContent = `WebSocket Status: ${status}`;
+            statusElement.style.color =
+                status === 'Connected' ? 'green' :
+                    status === 'Disconnected' ? 'red' :
+                        status === 'Error' ? 'orange' : 'gray';
+        }
+    </script>
+</body>
+
+</html>
