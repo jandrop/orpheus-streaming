@@ -19,6 +19,7 @@ $root.tts = (function() {
          * Properties of a SendMessage.
          * @memberof tts
          * @interface ISendMessage
+         * @property {string|null} [session] SendMessage session
          * @property {tts.IStartSession|null} [startSession] SendMessage startSession
          * @property {tts.IPushText|null} [pushText] SendMessage pushText
          * @property {tts.IEos|null} [eos] SendMessage eos
@@ -38,6 +39,14 @@ $root.tts = (function() {
                     if (properties[keys[i]] != null)
                         this[keys[i]] = properties[keys[i]];
         }
+
+        /**
+         * SendMessage session.
+         * @member {string} session
+         * @memberof tts.SendMessage
+         * @instance
+         */
+        SendMessage.prototype.session = "";
 
         /**
          * SendMessage startSession.
@@ -101,12 +110,14 @@ $root.tts = (function() {
         SendMessage.encode = function encode(message, writer) {
             if (!writer)
                 writer = $Writer.create();
+            if (message.session != null && Object.hasOwnProperty.call(message, "session"))
+                writer.uint32(/* id 1, wireType 2 =*/10).string(message.session);
             if (message.startSession != null && Object.hasOwnProperty.call(message, "startSession"))
-                $root.tts.StartSession.encode(message.startSession, writer.uint32(/* id 1, wireType 2 =*/10).fork()).ldelim();
+                $root.tts.StartSession.encode(message.startSession, writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
             if (message.pushText != null && Object.hasOwnProperty.call(message, "pushText"))
-                $root.tts.PushText.encode(message.pushText, writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
+                $root.tts.PushText.encode(message.pushText, writer.uint32(/* id 3, wireType 2 =*/26).fork()).ldelim();
             if (message.eos != null && Object.hasOwnProperty.call(message, "eos"))
-                $root.tts.Eos.encode(message.eos, writer.uint32(/* id 3, wireType 2 =*/26).fork()).ldelim();
+                $root.tts.Eos.encode(message.eos, writer.uint32(/* id 4, wireType 2 =*/34).fork()).ldelim();
             return writer;
         };
 
@@ -142,14 +153,18 @@ $root.tts = (function() {
                 var tag = reader.uint32();
                 switch (tag >>> 3) {
                 case 1: {
-                        message.startSession = $root.tts.StartSession.decode(reader, reader.uint32());
+                        message.session = reader.string();
                         break;
                     }
                 case 2: {
-                        message.pushText = $root.tts.PushText.decode(reader, reader.uint32());
+                        message.startSession = $root.tts.StartSession.decode(reader, reader.uint32());
                         break;
                     }
                 case 3: {
+                        message.pushText = $root.tts.PushText.decode(reader, reader.uint32());
+                        break;
+                    }
+                case 4: {
                         message.eos = $root.tts.Eos.decode(reader, reader.uint32());
                         break;
                     }
@@ -189,6 +204,9 @@ $root.tts = (function() {
             if (typeof message !== "object" || message === null)
                 return "object expected";
             var properties = {};
+            if (message.session != null && message.hasOwnProperty("session"))
+                if (!$util.isString(message.session))
+                    return "session: string expected";
             if (message.startSession != null && message.hasOwnProperty("startSession")) {
                 properties.payload = 1;
                 {
@@ -232,6 +250,8 @@ $root.tts = (function() {
             if (object instanceof $root.tts.SendMessage)
                 return object;
             var message = new $root.tts.SendMessage();
+            if (object.session != null)
+                message.session = String(object.session);
             if (object.startSession != null) {
                 if (typeof object.startSession !== "object")
                     throw TypeError(".tts.SendMessage.startSession: object expected");
@@ -263,6 +283,10 @@ $root.tts = (function() {
             if (!options)
                 options = {};
             var object = {};
+            if (options.defaults)
+                object.session = "";
+            if (message.session != null && message.hasOwnProperty("session"))
+                object.session = message.session;
             if (message.startSession != null && message.hasOwnProperty("startSession")) {
                 object.startSession = $root.tts.StartSession.toObject(message.startSession, options);
                 if (options.oneofs)
@@ -316,6 +340,7 @@ $root.tts = (function() {
          * Properties of a ReceiveMessage.
          * @memberof tts
          * @interface IReceiveMessage
+         * @property {string|null} [session] ReceiveMessage session
          * @property {tts.IAudioData|null} [audioData] ReceiveMessage audioData
          * @property {tts.IFinished|null} [finished] ReceiveMessage finished
          * @property {tts.IError|null} [error] ReceiveMessage error
@@ -335,6 +360,14 @@ $root.tts = (function() {
                     if (properties[keys[i]] != null)
                         this[keys[i]] = properties[keys[i]];
         }
+
+        /**
+         * ReceiveMessage session.
+         * @member {string} session
+         * @memberof tts.ReceiveMessage
+         * @instance
+         */
+        ReceiveMessage.prototype.session = "";
 
         /**
          * ReceiveMessage audioData.
@@ -398,12 +431,14 @@ $root.tts = (function() {
         ReceiveMessage.encode = function encode(message, writer) {
             if (!writer)
                 writer = $Writer.create();
+            if (message.session != null && Object.hasOwnProperty.call(message, "session"))
+                writer.uint32(/* id 1, wireType 2 =*/10).string(message.session);
             if (message.audioData != null && Object.hasOwnProperty.call(message, "audioData"))
-                $root.tts.AudioData.encode(message.audioData, writer.uint32(/* id 1, wireType 2 =*/10).fork()).ldelim();
+                $root.tts.AudioData.encode(message.audioData, writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
             if (message.finished != null && Object.hasOwnProperty.call(message, "finished"))
-                $root.tts.Finished.encode(message.finished, writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
+                $root.tts.Finished.encode(message.finished, writer.uint32(/* id 3, wireType 2 =*/26).fork()).ldelim();
             if (message.error != null && Object.hasOwnProperty.call(message, "error"))
-                $root.tts.Error.encode(message.error, writer.uint32(/* id 3, wireType 2 =*/26).fork()).ldelim();
+                $root.tts.Error.encode(message.error, writer.uint32(/* id 4, wireType 2 =*/34).fork()).ldelim();
             return writer;
         };
 
@@ -439,14 +474,18 @@ $root.tts = (function() {
                 var tag = reader.uint32();
                 switch (tag >>> 3) {
                 case 1: {
-                        message.audioData = $root.tts.AudioData.decode(reader, reader.uint32());
+                        message.session = reader.string();
                         break;
                     }
                 case 2: {
-                        message.finished = $root.tts.Finished.decode(reader, reader.uint32());
+                        message.audioData = $root.tts.AudioData.decode(reader, reader.uint32());
                         break;
                     }
                 case 3: {
+                        message.finished = $root.tts.Finished.decode(reader, reader.uint32());
+                        break;
+                    }
+                case 4: {
                         message.error = $root.tts.Error.decode(reader, reader.uint32());
                         break;
                     }
@@ -486,6 +525,9 @@ $root.tts = (function() {
             if (typeof message !== "object" || message === null)
                 return "object expected";
             var properties = {};
+            if (message.session != null && message.hasOwnProperty("session"))
+                if (!$util.isString(message.session))
+                    return "session: string expected";
             if (message.audioData != null && message.hasOwnProperty("audioData")) {
                 properties.payload = 1;
                 {
@@ -529,6 +571,8 @@ $root.tts = (function() {
             if (object instanceof $root.tts.ReceiveMessage)
                 return object;
             var message = new $root.tts.ReceiveMessage();
+            if (object.session != null)
+                message.session = String(object.session);
             if (object.audioData != null) {
                 if (typeof object.audioData !== "object")
                     throw TypeError(".tts.ReceiveMessage.audioData: object expected");
@@ -560,6 +604,10 @@ $root.tts = (function() {
             if (!options)
                 options = {};
             var object = {};
+            if (options.defaults)
+                object.session = "";
+            if (message.session != null && message.hasOwnProperty("session"))
+                object.session = message.session;
             if (message.audioData != null && message.hasOwnProperty("audioData")) {
                 object.audioData = $root.tts.AudioData.toObject(message.audioData, options);
                 if (options.oneofs)
@@ -614,7 +662,6 @@ $root.tts = (function() {
          * @memberof tts
          * @interface IStartSession
          * @property {string|null} [voice] StartSession voice
-         * @property {string|null} [id] StartSession id
          */
 
         /**
@@ -639,14 +686,6 @@ $root.tts = (function() {
          * @instance
          */
         StartSession.prototype.voice = "";
-
-        /**
-         * StartSession id.
-         * @member {string} id
-         * @memberof tts.StartSession
-         * @instance
-         */
-        StartSession.prototype.id = "";
 
         /**
          * Creates a new StartSession instance using the specified properties.
@@ -674,8 +713,6 @@ $root.tts = (function() {
                 writer = $Writer.create();
             if (message.voice != null && Object.hasOwnProperty.call(message, "voice"))
                 writer.uint32(/* id 1, wireType 2 =*/10).string(message.voice);
-            if (message.id != null && Object.hasOwnProperty.call(message, "id"))
-                writer.uint32(/* id 2, wireType 2 =*/18).string(message.id);
             return writer;
         };
 
@@ -712,10 +749,6 @@ $root.tts = (function() {
                 switch (tag >>> 3) {
                 case 1: {
                         message.voice = reader.string();
-                        break;
-                    }
-                case 2: {
-                        message.id = reader.string();
                         break;
                     }
                 default:
@@ -756,9 +789,6 @@ $root.tts = (function() {
             if (message.voice != null && message.hasOwnProperty("voice"))
                 if (!$util.isString(message.voice))
                     return "voice: string expected";
-            if (message.id != null && message.hasOwnProperty("id"))
-                if (!$util.isString(message.id))
-                    return "id: string expected";
             return null;
         };
 
@@ -776,8 +806,6 @@ $root.tts = (function() {
             var message = new $root.tts.StartSession();
             if (object.voice != null)
                 message.voice = String(object.voice);
-            if (object.id != null)
-                message.id = String(object.id);
             return message;
         };
 
@@ -794,14 +822,10 @@ $root.tts = (function() {
             if (!options)
                 options = {};
             var object = {};
-            if (options.defaults) {
+            if (options.defaults)
                 object.voice = "";
-                object.id = "";
-            }
             if (message.voice != null && message.hasOwnProperty("voice"))
                 object.voice = message.voice;
-            if (message.id != null && message.hasOwnProperty("id"))
-                object.id = message.id;
             return object;
         };
 
@@ -840,7 +864,6 @@ $root.tts = (function() {
          * Properties of a PushText.
          * @memberof tts
          * @interface IPushText
-         * @property {string|null} [session] PushText session
          * @property {string|null} [text] PushText text
          */
 
@@ -858,14 +881,6 @@ $root.tts = (function() {
                     if (properties[keys[i]] != null)
                         this[keys[i]] = properties[keys[i]];
         }
-
-        /**
-         * PushText session.
-         * @member {string} session
-         * @memberof tts.PushText
-         * @instance
-         */
-        PushText.prototype.session = "";
 
         /**
          * PushText text.
@@ -899,8 +914,6 @@ $root.tts = (function() {
         PushText.encode = function encode(message, writer) {
             if (!writer)
                 writer = $Writer.create();
-            if (message.session != null && Object.hasOwnProperty.call(message, "session"))
-                writer.uint32(/* id 1, wireType 2 =*/10).string(message.session);
             if (message.text != null && Object.hasOwnProperty.call(message, "text"))
                 writer.uint32(/* id 2, wireType 2 =*/18).string(message.text);
             return writer;
@@ -937,10 +950,6 @@ $root.tts = (function() {
             while (reader.pos < end) {
                 var tag = reader.uint32();
                 switch (tag >>> 3) {
-                case 1: {
-                        message.session = reader.string();
-                        break;
-                    }
                 case 2: {
                         message.text = reader.string();
                         break;
@@ -980,9 +989,6 @@ $root.tts = (function() {
         PushText.verify = function verify(message) {
             if (typeof message !== "object" || message === null)
                 return "object expected";
-            if (message.session != null && message.hasOwnProperty("session"))
-                if (!$util.isString(message.session))
-                    return "session: string expected";
             if (message.text != null && message.hasOwnProperty("text"))
                 if (!$util.isString(message.text))
                     return "text: string expected";
@@ -1001,8 +1007,6 @@ $root.tts = (function() {
             if (object instanceof $root.tts.PushText)
                 return object;
             var message = new $root.tts.PushText();
-            if (object.session != null)
-                message.session = String(object.session);
             if (object.text != null)
                 message.text = String(object.text);
             return message;
@@ -1021,12 +1025,8 @@ $root.tts = (function() {
             if (!options)
                 options = {};
             var object = {};
-            if (options.defaults) {
-                object.session = "";
+            if (options.defaults)
                 object.text = "";
-            }
-            if (message.session != null && message.hasOwnProperty("session"))
-                object.session = message.session;
             if (message.text != null && message.hasOwnProperty("text"))
                 object.text = message.text;
             return object;
@@ -1067,7 +1067,6 @@ $root.tts = (function() {
          * Properties of an Eos.
          * @memberof tts
          * @interface IEos
-         * @property {string|null} [session] Eos session
          */
 
         /**
@@ -1084,14 +1083,6 @@ $root.tts = (function() {
                     if (properties[keys[i]] != null)
                         this[keys[i]] = properties[keys[i]];
         }
-
-        /**
-         * Eos session.
-         * @member {string} session
-         * @memberof tts.Eos
-         * @instance
-         */
-        Eos.prototype.session = "";
 
         /**
          * Creates a new Eos instance using the specified properties.
@@ -1117,8 +1108,6 @@ $root.tts = (function() {
         Eos.encode = function encode(message, writer) {
             if (!writer)
                 writer = $Writer.create();
-            if (message.session != null && Object.hasOwnProperty.call(message, "session"))
-                writer.uint32(/* id 1, wireType 2 =*/10).string(message.session);
             return writer;
         };
 
@@ -1153,10 +1142,6 @@ $root.tts = (function() {
             while (reader.pos < end) {
                 var tag = reader.uint32();
                 switch (tag >>> 3) {
-                case 1: {
-                        message.session = reader.string();
-                        break;
-                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -1192,9 +1177,6 @@ $root.tts = (function() {
         Eos.verify = function verify(message) {
             if (typeof message !== "object" || message === null)
                 return "object expected";
-            if (message.session != null && message.hasOwnProperty("session"))
-                if (!$util.isString(message.session))
-                    return "session: string expected";
             return null;
         };
 
@@ -1209,10 +1191,7 @@ $root.tts = (function() {
         Eos.fromObject = function fromObject(object) {
             if (object instanceof $root.tts.Eos)
                 return object;
-            var message = new $root.tts.Eos();
-            if (object.session != null)
-                message.session = String(object.session);
-            return message;
+            return new $root.tts.Eos();
         };
 
         /**
@@ -1224,15 +1203,8 @@ $root.tts = (function() {
          * @param {$protobuf.IConversionOptions} [options] Conversion options
          * @returns {Object.<string,*>} Plain object
          */
-        Eos.toObject = function toObject(message, options) {
-            if (!options)
-                options = {};
-            var object = {};
-            if (options.defaults)
-                object.session = "";
-            if (message.session != null && message.hasOwnProperty("session"))
-                object.session = message.session;
-            return object;
+        Eos.toObject = function toObject() {
+            return {};
         };
 
         /**
@@ -1270,8 +1242,7 @@ $root.tts = (function() {
          * Properties of an AudioData.
          * @memberof tts
          * @interface IAudioData
-         * @property {string|null} [session] AudioData session
-         * @property {string|null} [audio] AudioData audio
+         * @property {Uint8Array|null} [audio] AudioData audio
          * @property {number|null} [sampleRate] AudioData sampleRate
          * @property {tts.AudioType|null} [audioType] AudioData audioType
          * @property {number|null} [channelCount] AudioData channelCount
@@ -1293,20 +1264,12 @@ $root.tts = (function() {
         }
 
         /**
-         * AudioData session.
-         * @member {string} session
-         * @memberof tts.AudioData
-         * @instance
-         */
-        AudioData.prototype.session = "";
-
-        /**
          * AudioData audio.
-         * @member {string} audio
+         * @member {Uint8Array} audio
          * @memberof tts.AudioData
          * @instance
          */
-        AudioData.prototype.audio = "";
+        AudioData.prototype.audio = $util.newBuffer([]);
 
         /**
          * AudioData sampleRate.
@@ -1356,16 +1319,14 @@ $root.tts = (function() {
         AudioData.encode = function encode(message, writer) {
             if (!writer)
                 writer = $Writer.create();
-            if (message.session != null && Object.hasOwnProperty.call(message, "session"))
-                writer.uint32(/* id 1, wireType 2 =*/10).string(message.session);
             if (message.audio != null && Object.hasOwnProperty.call(message, "audio"))
-                writer.uint32(/* id 2, wireType 2 =*/18).string(message.audio);
+                writer.uint32(/* id 1, wireType 2 =*/10).bytes(message.audio);
             if (message.sampleRate != null && Object.hasOwnProperty.call(message, "sampleRate"))
-                writer.uint32(/* id 3, wireType 0 =*/24).int32(message.sampleRate);
+                writer.uint32(/* id 2, wireType 0 =*/16).int32(message.sampleRate);
             if (message.audioType != null && Object.hasOwnProperty.call(message, "audioType"))
-                writer.uint32(/* id 4, wireType 0 =*/32).int32(message.audioType);
+                writer.uint32(/* id 3, wireType 0 =*/24).int32(message.audioType);
             if (message.channelCount != null && Object.hasOwnProperty.call(message, "channelCount"))
-                writer.uint32(/* id 5, wireType 0 =*/40).int32(message.channelCount);
+                writer.uint32(/* id 4, wireType 0 =*/32).int32(message.channelCount);
             return writer;
         };
 
@@ -1401,22 +1362,18 @@ $root.tts = (function() {
                 var tag = reader.uint32();
                 switch (tag >>> 3) {
                 case 1: {
-                        message.session = reader.string();
+                        message.audio = reader.bytes();
                         break;
                     }
                 case 2: {
-                        message.audio = reader.string();
-                        break;
-                    }
-                case 3: {
                         message.sampleRate = reader.int32();
                         break;
                     }
-                case 4: {
+                case 3: {
                         message.audioType = reader.int32();
                         break;
                     }
-                case 5: {
+                case 4: {
                         message.channelCount = reader.int32();
                         break;
                     }
@@ -1455,12 +1412,9 @@ $root.tts = (function() {
         AudioData.verify = function verify(message) {
             if (typeof message !== "object" || message === null)
                 return "object expected";
-            if (message.session != null && message.hasOwnProperty("session"))
-                if (!$util.isString(message.session))
-                    return "session: string expected";
             if (message.audio != null && message.hasOwnProperty("audio"))
-                if (!$util.isString(message.audio))
-                    return "audio: string expected";
+                if (!(message.audio && typeof message.audio.length === "number" || $util.isString(message.audio)))
+                    return "audio: buffer expected";
             if (message.sampleRate != null && message.hasOwnProperty("sampleRate"))
                 if (!$util.isInteger(message.sampleRate))
                     return "sampleRate: integer expected";
@@ -1489,10 +1443,11 @@ $root.tts = (function() {
             if (object instanceof $root.tts.AudioData)
                 return object;
             var message = new $root.tts.AudioData();
-            if (object.session != null)
-                message.session = String(object.session);
             if (object.audio != null)
-                message.audio = String(object.audio);
+                if (typeof object.audio === "string")
+                    $util.base64.decode(object.audio, message.audio = $util.newBuffer($util.base64.length(object.audio)), 0);
+                else if (object.audio.length >= 0)
+                    message.audio = object.audio;
             if (object.sampleRate != null)
                 message.sampleRate = object.sampleRate | 0;
             switch (object.audioType) {
@@ -1526,16 +1481,19 @@ $root.tts = (function() {
                 options = {};
             var object = {};
             if (options.defaults) {
-                object.session = "";
-                object.audio = "";
+                if (options.bytes === String)
+                    object.audio = "";
+                else {
+                    object.audio = [];
+                    if (options.bytes !== Array)
+                        object.audio = $util.newBuffer(object.audio);
+                }
                 object.sampleRate = 0;
                 object.audioType = options.enums === String ? "AUDIOTYPE_PCM16LE" : 0;
                 object.channelCount = 0;
             }
-            if (message.session != null && message.hasOwnProperty("session"))
-                object.session = message.session;
             if (message.audio != null && message.hasOwnProperty("audio"))
-                object.audio = message.audio;
+                object.audio = options.bytes === String ? $util.base64.encode(message.audio, 0, message.audio.length) : options.bytes === Array ? Array.prototype.slice.call(message.audio) : message.audio;
             if (message.sampleRate != null && message.hasOwnProperty("sampleRate"))
                 object.sampleRate = message.sampleRate;
             if (message.audioType != null && message.hasOwnProperty("audioType"))
@@ -1580,7 +1538,6 @@ $root.tts = (function() {
          * Properties of a Finished.
          * @memberof tts
          * @interface IFinished
-         * @property {string|null} [session] Finished session
          */
 
         /**
@@ -1597,14 +1554,6 @@ $root.tts = (function() {
                     if (properties[keys[i]] != null)
                         this[keys[i]] = properties[keys[i]];
         }
-
-        /**
-         * Finished session.
-         * @member {string} session
-         * @memberof tts.Finished
-         * @instance
-         */
-        Finished.prototype.session = "";
 
         /**
          * Creates a new Finished instance using the specified properties.
@@ -1630,8 +1579,6 @@ $root.tts = (function() {
         Finished.encode = function encode(message, writer) {
             if (!writer)
                 writer = $Writer.create();
-            if (message.session != null && Object.hasOwnProperty.call(message, "session"))
-                writer.uint32(/* id 1, wireType 2 =*/10).string(message.session);
             return writer;
         };
 
@@ -1666,10 +1613,6 @@ $root.tts = (function() {
             while (reader.pos < end) {
                 var tag = reader.uint32();
                 switch (tag >>> 3) {
-                case 1: {
-                        message.session = reader.string();
-                        break;
-                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -1705,9 +1648,6 @@ $root.tts = (function() {
         Finished.verify = function verify(message) {
             if (typeof message !== "object" || message === null)
                 return "object expected";
-            if (message.session != null && message.hasOwnProperty("session"))
-                if (!$util.isString(message.session))
-                    return "session: string expected";
             return null;
         };
 
@@ -1722,10 +1662,7 @@ $root.tts = (function() {
         Finished.fromObject = function fromObject(object) {
             if (object instanceof $root.tts.Finished)
                 return object;
-            var message = new $root.tts.Finished();
-            if (object.session != null)
-                message.session = String(object.session);
-            return message;
+            return new $root.tts.Finished();
         };
 
         /**
@@ -1737,15 +1674,8 @@ $root.tts = (function() {
          * @param {$protobuf.IConversionOptions} [options] Conversion options
          * @returns {Object.<string,*>} Plain object
          */
-        Finished.toObject = function toObject(message, options) {
-            if (!options)
-                options = {};
-            var object = {};
-            if (options.defaults)
-                object.session = "";
-            if (message.session != null && message.hasOwnProperty("session"))
-                object.session = message.session;
-            return object;
+        Finished.toObject = function toObject() {
+            return {};
         };
 
         /**
