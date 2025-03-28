@@ -32,7 +32,7 @@
     <div class="input-container">
         <input type="text" id="messageInput" placeholder="Type text to send...">
         <button id="sendButton">Send Text</button>
-        <button id="eosButton">End Session</button>
+        <button id="eosButton">Send EOS</button>
     </div>
     <div id="status">WebSocket Status: Connecting...</div>
     <div id="messages"></div>
@@ -73,10 +73,17 @@
             sendStartSession();
         };
 
-        ws.onmessage = function (event) {
-            const uint8Array = new Uint8Array(event.data);
-            const message = ReceiveMessage.decode(uint8Array);
-            handleReceiveMessage(message);
+        ws.onmessage = async function (event) {
+            try {
+                const arrayBuffer = await event.data.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+                const message = ReceiveMessage.decode(uint8Array);
+                handleReceiveMessage(message);
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error);
+                addMessage('Error parsing message');
+                return;
+            }
         };
 
         ws.onerror = function (error) {
@@ -116,30 +123,31 @@
         // Sending functions
         function sendStartSession() {
             const startSession = StartSession.create({
-                voice: "default_voice", // Adjust as needed
-                id: "session_" + Date.now() // Unique ID
+                voice: "tara", // Adjust as needed
             });
-            const message = SendMessage.create({ startSession: startSession });
+            const message = SendMessage.create({
+                startSession,
+                session: "session_" + Date.now() // Unique ID
+            });
             const buffer = SendMessage.encode(message).finish();
             ws.send(buffer);
-            sessionId = startSession.id;
+            sessionId = message.session;
             addMessage(`Started session: ${sessionId}`);
         }
 
         function sendPushText(text) {
             const pushText = PushText.create({
-                session: sessionId,
                 text: text
             });
-            const message = SendMessage.create({ pushText: pushText });
+            const message = SendMessage.create({ pushText, session: sessionId });
             const buffer = SendMessage.encode(message).finish();
             ws.send(buffer);
             addMessage(`Sent: ${text}`);
         }
 
         function sendEos() {
-            const eos = Eos.create({ session: sessionId });
-            const message = SendMessage.create({ eos: eos });
+            const eos = Eos.create({});
+            const message = SendMessage.create({ eos: eos, session: sessionId });
             const buffer = SendMessage.encode(message).finish();
             ws.send(buffer);
             addMessage(`Sent EOS for session: ${sessionId}`);
@@ -148,19 +156,21 @@
 
         // Handle received messages
         function handleReceiveMessage(message) {
+            window.test = message;
+            console.log(message.payload);
             switch (message.payload) {
                 case 'audioData':
                     const audio = message.audioData;
-                    addMessage(`Received Audio: session=${audio.session}, sample_rate=${audio.sampleRate}, type=${AudioType[audio.audioType]}, channels=${audio.channelCount}`);
+                    addMessage(`Received Audio: session=${message.session}, sample_rate=${audio.sampleRate}, type=${AudioType[audio.audioType]}, channels=${audio.channelCount}`);
                 //18                    break;
                 case 'finished':
                     const finished = message.finished;
-                    addMessage(`Session Finished: ${finished.session}`);
+                    addMessage(`Session Finished: ${message.session}`);
                     sessionId = null;
                     break;
                 case 'error':
                     const error = message.error;
-                    addMessage(`Error: ${error.message} (session: ${error.session})`);
+                    addMessage(`Error: ${error.message} (session: ${message.session})`);
                     break;
                 default:
                     addMessage('Received unknown message type');
